@@ -1,0 +1,18 @@
+# Python virtual environment
+venv/
+
+# Python cache files
+__pycache__/
+agent/__pycache__/
+
+# Environment variables file with secret keys
+# VERY IMPORTANT to ignore this file!
+.env
+
+# SQLite Database file
+chat_database.db
+chat_database.db-journal
+
+# IDE and OS specific files
+.vscode/
+.DS_Store
