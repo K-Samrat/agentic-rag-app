@@ -1,7 +1,6 @@
 import streamlit as st
 import requests
 import uuid
-from streamlit_cookies_manager import CookieManager
 
 # --- Page Configuration ---
 st.set_page_config(
@@ -13,23 +12,16 @@ st.set_page_config(
 # --- Live Backend API Endpoint ---
 API_BASE_URL = "https://ks-agentic-rag-backend.onrender.com"
 
-# --- Cookie Manager ---
-# This creates a persistent cookie to identify a user's browser session.
-cookies = CookieManager()
-if not cookies.ready():
-    st.stop()
+# =======================================================================================
+# --- THE FIX: Using Streamlit's built-in Session State for a unique ID ---
+# =======================================================================================
+if "session_id" not in st.session_state:
+    st.session_state.session_id = str(uuid.uuid4())
 
-session_id = cookies.get("session_id")
-if not session_id:
-    session_id = str(uuid.uuid4())
-    # --- THIS IS THE FIX ---
-    # We set the cookie using dictionary-style assignment
-    cookies['session_id'] = session_id
+# We now include the session_id from session_state in the headers of every API request
+headers = {"x-session-id": st.session_state.session_id}
 
-# We now include the session_id in the headers of every API request
-headers = {"x-session-id": session_id}
-
-# --- API Helper Functions (Unchanged) ---
+# --- API Helper Functions (now with headers from session_state) ---
 def get_conversations():
     try:
         response = requests.get(f"{API_BASE_URL}/conversations/", headers=headers)
@@ -79,8 +71,6 @@ if "messages" not in st.session_state:
     st.session_state.messages = []
 if "current_conversation_id" not in st.session_state:
     st.session_state.current_conversation_id = None
-if "conversation_list" not in st.session_state:
-    st.session_state.conversation_list = []
 
 with st.sidebar:
     st.title("Conversations")
@@ -91,8 +81,9 @@ with st.sidebar:
             st.session_state.messages = []
             st.rerun()
     st.write("---")
-    st.session_state.conversation_list = get_conversations()
-    for convo in st.session_state.conversation_list:
+    # We now fetch conversations for the current session
+    conversation_list = get_conversations()
+    for convo in conversation_list:
         convo_id = convo["id"]
         col1, col2 = st.columns([4, 1])
         with col1:
