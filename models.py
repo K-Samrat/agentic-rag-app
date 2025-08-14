@@ -6,6 +6,9 @@ class Conversation(Base):
     __tablename__ = "conversations"
     id = Column(Integer, primary_key=True, index=True)
     title = Column(String, default="New Chat")
+    # This column is crucial for separating user chats
+    session_id = Column(String, index=True) 
+    
     messages = relationship("Message", back_populates="conversation", cascade="all, delete-orphan")
 
 class Message(Base):
@@ -14,4 +17,5 @@ class Message(Base):
     role = Column(String)
     content = Column(String)
     conversation_id = Column(Integer, ForeignKey("conversations.id"))
+    
     conversation = relationship("Conversation", back_populates="messages")
