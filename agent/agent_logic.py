@@ -1,7 +1,7 @@
 import os
-import requests
-from bs4 import BeautifulSoup
 from dotenv import load_dotenv
+# --- THE FIX: We import FirecrawlApp and remove old, unused imports ---
+from firecrawl import FirecrawlApp
 
 from langchain_google_genai import GoogleGenerativeAIEmbeddings, ChatGoogleGenerativeAI
 from langchain_chroma import Chroma
@@ -13,21 +13,20 @@ from langchain_experimental.tools import PythonREPLTool
 from langchain_core.runnables import RunnablePassthrough
 from langchain_core.output_parsers import StrOutputParser
 
-def scrape_website_content(url: str) -> str:
-    """Scrapes the main text content from a given URL."""
+def scrape_website_with_firecrawl(url: str) -> str:
+    """Uses Firecrawl to scrape the clean, main content of a webpage given its URL."""
+    cleaned_url = url.strip()
+    print(f"Scraping URL: {cleaned_url}")
     try:
-        response = requests.get(url, timeout=10)
-        response.raise_for_status()
-        soup = BeautifulSoup(response.text, 'html.parser')
-        main_content = soup.find('main') or soup.find('article') or soup.body
-        if main_content:
-            return ' '.join(main_content.get_text().split())
-        return "Could not find main content."
-    except requests.RequestException as e:
-        return f"Error fetching URL: {e}"
+        app = FirecrawlApp(api_key=os.environ.get("FIRECRAWL_API_KEY"))
+        scraped_data = app.scrape_url(cleaned_url)
+        
+        if 'markdown' in scraped_data and scraped_data['markdown']:
+            return scraped_data['markdown']
+        return "Could not extract the main content from the page."
+    except Exception as e:
+        return f"Error during scraping: {e}"
 
-# --- THIS IS THE FINAL, UNIFIED PROMPT ---
-# We define the entire prompt with all instructions in one single string.
 react_prompt_template_str = """
 Answer the following questions as best you can. You have access to the following tools:
 
@@ -36,15 +35,12 @@ Answer the following questions as best you can. You have access to the following
 Use the following format:
 
 Question: the input question you must answer
-Thought: you should always think about what to do. For questions that require up-to-date information, your primary plan is a two-step process:
-1. Use the 'tavily_search' tool to find relevant URLs.
-2. Use the 'web_page_reader' tool on the most promising URL.
-If the 'web_page_reader' tool fails for any reason, you MUST NOT give up. You must fall back to your Plan B, which is to formulate a final answer using only the information from the 'tavily_search' results.
+Thought: you should always think about what to do. Your primary goal is to provide a direct, helpful, and friendly answer to the user.
 Action: the action to take, should be one of [{tool_names}]
 Action Input: the input to the action
 Observation: the result of the action
 ... (this Thought/Action/Action Input/Observation can repeat N times)
-Thought: I now know the final answer
+Thought: I now know the final answer. I will present this answer to the user in a natural, conversational way. I will not mention my internal thought process or the tools I used.
 Final Answer: the final answer to the original input question
 
 Begin!
@@ -55,7 +51,7 @@ Thought:{agent_scratchpad}
 
 def create_agent_executor():
     """Creates the complete, final agent executor."""
-    print("🚀 Setting up the Final, Professional Agent System...")
+    print("🚀 Setting up the Final, Polished Agent System...")
     load_dotenv()
     if "GOOGLE_API_KEY" not in os.environ or "TAVILY_API_KEY" not in os.environ or "FIRECRAWL_API_KEY" not in os.environ:
         raise ValueError("Google, Tavily, and Firecrawl API keys must be set.")
@@ -79,18 +75,16 @@ def create_agent_executor():
     python_repl_tool = PythonREPLTool()
     web_reader_tool = Tool(
         name="web_page_reader",
-        func=scrape_website_content,
-        description="""Use this to read the full, clean content of a webpage given its URL. This is useful after a 'tavily_search' to get more details."""
+        func=scrape_website_with_firecrawl,
+        description="""Use this to read the full, clean content of a webpage given its URL. This is the best tool for getting detailed, up-to-date information."""
     )
     
     tools = [document_tool, search_tool, python_repl_tool, web_reader_tool]
     print("✅ All four professional-grade tools created.")
     
-    # We now create the prompt directly from our unified template string
     prompt = PromptTemplate.from_template(react_prompt_template_str)
-    
     agent = create_react_agent(llm, tools, prompt)
-    print("✅ Gemini-powered ReAct agent created with resilient prompt.")
+    print("✅ Gemini-powered ReAct agent created with final polished prompt.")
     
     agent_executor = AgentExecutor(
         agent=agent, 
