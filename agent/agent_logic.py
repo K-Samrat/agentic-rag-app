@@ -26,15 +26,20 @@ def scrape_website_content(url: str) -> str:
     except requests.RequestException as e:
         return f"Error fetching URL: {e}"
 
-# --- THIS IS THE FINAL PROMPT ---
+# --- THIS IS THE FINAL, UNIFIED PROMPT ---
+# We define the entire prompt with all instructions in one single string.
 react_prompt_template_str = """
 Answer the following questions as best you can. You have access to the following tools:
+
 {tools}
 
 Use the following format:
 
 Question: the input question you must answer
-Thought: you should always think about what to do.
+Thought: you should always think about what to do. For questions that require up-to-date information, your primary plan is a two-step process:
+1. Use the 'tavily_search' tool to find relevant URLs.
+2. Use the 'web_page_reader' tool on the most promising URL.
+If the 'web_page_reader' tool fails for any reason, you MUST NOT give up. You must fall back to your Plan B, which is to formulate a final answer using only the information from the 'tavily_search' results.
 Action: the action to take, should be one of [{tool_names}]
 Action Input: the input to the action
 Observation: the result of the action
@@ -50,10 +55,10 @@ Thought:{agent_scratchpad}
 
 def create_agent_executor():
     """Creates the complete, final agent executor."""
-    print("🚀 Setting up the Final, Resilient Agent System...")
+    print("🚀 Setting up the Final, Professional Agent System...")
     load_dotenv()
-    if "GOOGLE_API_KEY" not in os.environ or "TAVILY_API_KEY" not in os.environ:
-        raise ValueError("Google and Tavily API keys must be set.")
+    if "GOOGLE_API_KEY" not in os.environ or "TAVILY_API_KEY" not in os.environ or "FIRECRAWL_API_KEY" not in os.environ:
+        raise ValueError("Google, Tavily, and Firecrawl API keys must be set.")
     print("✅ API keys loaded.")
 
     llm = ChatGoogleGenerativeAI(model="gemini-1.5-flash-latest", temperature=0)
@@ -75,23 +80,14 @@ def create_agent_executor():
     web_reader_tool = Tool(
         name="web_page_reader",
         func=scrape_website_content,
-        description="""Use this to read the full text content of a webpage given its URL. This is useful after a 'tavily_search' to get more details."""
+        description="""Use this to read the full, clean content of a webpage given its URL. This is useful after a 'tavily_search' to get more details."""
     )
     
     tools = [document_tool, search_tool, python_repl_tool, web_reader_tool]
-    print("✅ All four tools created.")
+    print("✅ All four professional-grade tools created.")
     
-    # --- Agent Creation with the new, resilient prompt ---
-    # We add the "Plan B" instruction to the main prompt template.
-    resilient_prompt_str = react_prompt_template_str.replace(
-        "Thought: you should always think about what to do.",
-        """Thought: you should always think about what to do.
-For questions requiring up-to-date information, your primary plan is a two-step process:
-1. Use the 'tavily_search' tool to find relevant URLs.
-2. Use the 'web_page_reader' tool on the most promising URL.
-However, if the 'web_page_reader' tool fails for any reason, you MUST NOT give up. You must fall back to your Plan B, which is to formulate a final answer using only the information from the 'tavily_search' results."""
-    )
-    prompt = PromptTemplate.from_template(resilient_prompt_str)
+    # We now create the prompt directly from our unified template string
+    prompt = PromptTemplate.from_template(react_prompt_template_str)
     
     agent = create_react_agent(llm, tools, prompt)
     print("✅ Gemini-powered ReAct agent created with resilient prompt.")
