@@ -13,14 +13,12 @@ from langchain_experimental.tools import PythonREPLTool
 from langchain_core.runnables import RunnablePassthrough
 from langchain_core.output_parsers import StrOutputParser
 
-# --- NEW HELPER FUNCTION FOR THE WEB READER TOOL ---
 def scrape_website_content(url: str) -> str:
     """Scrapes the main text content from a given URL."""
     try:
         response = requests.get(url, timeout=10)
         response.raise_for_status()
         soup = BeautifulSoup(response.text, 'html.parser')
-        # Find main content, article, or just body and get text
         main_content = soup.find('main') or soup.find('article') or soup.body
         if main_content:
             return ' '.join(main_content.get_text().split())
@@ -28,16 +26,15 @@ def scrape_website_content(url: str) -> str:
     except requests.RequestException as e:
         return f"Error fetching URL: {e}"
 
-# We define the ReAct prompt template manually
+# --- THIS IS THE FINAL PROMPT ---
 react_prompt_template_str = """
 Answer the following questions as best you can. You have access to the following tools:
 {tools}
 
 Use the following format:
+
 Question: the input question you must answer
-Thought: you should always think about what to do. For questions that require up-to-date information, you MUST use a two-step process:
-1. First, use the 'tavily_search' tool to find relevant URLs.
-2. Second, analyze the search results and use the 'web_page_reader' tool on the most promising URL to get the full, detailed content before answering.
+Thought: you should always think about what to do.
 Action: the action to take, should be one of [{tool_names}]
 Action Input: the input to the action
 Observation: the result of the action
@@ -46,13 +43,14 @@ Thought: I now know the final answer
 Final Answer: the final answer to the original input question
 
 Begin!
+
 Question: {input}
 Thought:{agent_scratchpad}
 """
 
 def create_agent_executor():
     """Creates the complete, final agent executor."""
-    print("🚀 Setting up the Final Agent System...")
+    print("🚀 Setting up the Final, Resilient Agent System...")
     load_dotenv()
     if "GOOGLE_API_KEY" not in os.environ or "TAVILY_API_KEY" not in os.environ:
         raise ValueError("Google and Tavily API keys must be set.")
@@ -60,7 +58,6 @@ def create_agent_executor():
 
     llm = ChatGoogleGenerativeAI(model="gemini-1.5-flash-latest", temperature=0)
     
-    # --- RAG Tool Creation ---
     print("   -> Initializing RAG tool...")
     persist_directory = 'chroma_db_gemini'
     embedding_model = GoogleGenerativeAIEmbeddings(model="models/embedding-001")
@@ -68,7 +65,6 @@ def create_agent_executor():
     retriever = vectorstore.as_retriever(search_kwargs={"k": 5})
     rag_chain = ({"context": retriever, "input": RunnablePassthrough()} | PromptTemplate.from_template("Answer based on context:\n{context}\nQuestion: {input}") | llm | StrOutputParser())
     
-    # --- DEFINE ALL FOUR TOOLS ---
     document_tool = Tool(
         name="scientific_paper_search",
         func=rag_chain.invoke,
@@ -76,7 +72,6 @@ def create_agent_executor():
     )
     search_tool = TavilySearch(max_results=3)
     python_repl_tool = PythonREPLTool()
-    # NEW TOOL: The Web Page Reader
     web_reader_tool = Tool(
         name="web_page_reader",
         func=scrape_website_content,
@@ -86,10 +81,20 @@ def create_agent_executor():
     tools = [document_tool, search_tool, python_repl_tool, web_reader_tool]
     print("✅ All four tools created.")
     
-    # --- Agent Creation with the new prompt ---
-    prompt = PromptTemplate.from_template(react_prompt_template_str)
+    # --- Agent Creation with the new, resilient prompt ---
+    # We add the "Plan B" instruction to the main prompt template.
+    resilient_prompt_str = react_prompt_template_str.replace(
+        "Thought: you should always think about what to do.",
+        """Thought: you should always think about what to do.
+For questions requiring up-to-date information, your primary plan is a two-step process:
+1. Use the 'tavily_search' tool to find relevant URLs.
+2. Use the 'web_page_reader' tool on the most promising URL.
+However, if the 'web_page_reader' tool fails for any reason, you MUST NOT give up. You must fall back to your Plan B, which is to formulate a final answer using only the information from the 'tavily_search' results."""
+    )
+    prompt = PromptTemplate.from_template(resilient_prompt_str)
+    
     agent = create_react_agent(llm, tools, prompt)
-    print("✅ Gemini-powered ReAct agent created.")
+    print("✅ Gemini-powered ReAct agent created with resilient prompt.")
     
     agent_executor = AgentExecutor(
         agent=agent, 
