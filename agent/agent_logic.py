@@ -1,11 +1,13 @@
 import os
 from dotenv import load_dotenv
 
+# --- THE FIX: We are enabling LangChain's debug mode ---
+import langchain
+langchain.debug = True
+
 from langchain_google_genai import GoogleGenerativeAIEmbeddings, ChatGoogleGenerativeAI
 from langchain_chroma import Chroma
-from langchain_core.prompts import ChatPromptTemplate
-# --- NEW: We need a messages placeholder for the new agent type ---
-from langchain_core.prompts import MessagesPlaceholder
+from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain.agents import AgentExecutor, create_tool_calling_agent
 from langchain.tools import Tool
 from langchain_tavily import TavilySearch
@@ -42,13 +44,8 @@ def create_agent_executor():
     tools = [document_tool, search_tool, python_repl_tool]
     print("✅ All three tools created.")
     
-    # =======================================================================================
-    # --- THE FINAL UPGRADE: A Powerful Persona Prompt ---
-    # =======================================================================================
-    
     persona_prompt_str = """
     You are Samrat Agent, a world-class research assistant. Your goal is to provide accurate, well-structured, and helpful answers to the user.
-
     Here are your instructions:
     1.  **Always be helpful and proactive:** If you can find the answer, you must provide it. Never claim you don't know something if you have a tool that can find the answer.
     2.  **Use your tools:** You have access to a set of powerful tools. You must decide which tool is best for the user's question and use it.
@@ -57,7 +54,6 @@ def create_agent_executor():
     5.  **Be conversational:** Maintain a friendly and professional tone.
     """
     
-    # We use the modern 'create_tool_calling_agent' which works best with Gemini
     prompt = ChatPromptTemplate.from_messages([
         ("system", persona_prompt_str),
         ("user", "{input}"),
@@ -65,7 +61,6 @@ def create_agent_executor():
     ])
     
     agent = create_tool_calling_agent(llm, tools, prompt)
-    
     print("✅ Persona-driven agent created.")
     
     agent_executor = AgentExecutor(
