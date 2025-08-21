@@ -1,60 +1,26 @@
 import os
 from dotenv import load_dotenv
-# --- THE FIX: We import FirecrawlApp and remove old, unused imports ---
-from firecrawl import FirecrawlApp
 
 from langchain_google_genai import GoogleGenerativeAIEmbeddings, ChatGoogleGenerativeAI
 from langchain_chroma import Chroma
-from langchain_core.prompts import PromptTemplate
-from langchain.agents import AgentExecutor, create_react_agent
+from langchain_core.prompts import ChatPromptTemplate
+# --- NEW: We need a messages placeholder for the new agent type ---
+from langchain_core.prompts import MessagesPlaceholder
+from langchain.agents import AgentExecutor, create_tool_calling_agent
 from langchain.tools import Tool
 from langchain_tavily import TavilySearch
 from langchain_experimental.tools import PythonREPLTool
 from langchain_core.runnables import RunnablePassthrough
 from langchain_core.output_parsers import StrOutputParser
 
-def scrape_website_with_firecrawl(url: str) -> str:
-    """Uses Firecrawl to scrape the clean, main content of a webpage given its URL."""
-    cleaned_url = url.strip()
-    print(f"Scraping URL: {cleaned_url}")
-    try:
-        app = FirecrawlApp(api_key=os.environ.get("FIRECRAWL_API_KEY"))
-        scraped_data = app.scrape_url(cleaned_url)
-        
-        if 'markdown' in scraped_data and scraped_data['markdown']:
-            return scraped_data['markdown']
-        return "Could not extract the main content from the page."
-    except Exception as e:
-        return f"Error during scraping: {e}"
-
-react_prompt_template_str = """
-Answer the following questions as best you can. You have access to the following tools:
-
-{tools}
-
-Use the following format:
-
-Question: the input question you must answer
-Thought: you should always think about what to do. Your primary goal is to provide a direct, helpful, and friendly answer to the user.
-Action: the action to take, should be one of [{tool_names}]
-Action Input: the input to the action
-Observation: the result of the action
-... (this Thought/Action/Action Input/Observation can repeat N times)
-Thought: I now know the final answer. I will present this answer to the user in a natural, conversational way. I will not mention my internal thought process or the tools I used.
-Final Answer: the final answer to the original input question
-
-Begin!
-
-Question: {input}
-Thought:{agent_scratchpad}
-"""
-
 def create_agent_executor():
-    """Creates the complete, final agent executor."""
-    print("🚀 Setting up the Final, Polished Agent System...")
+    """Creates the complete, final agent executor with a persona."""
+    
+    print("🚀 Setting up the Final Persona Agent System...")
+    
     load_dotenv()
-    if "GOOGLE_API_KEY" not in os.environ or "TAVILY_API_KEY" not in os.environ or "FIRECRAWL_API_KEY" not in os.environ:
-        raise ValueError("Google, Tavily, and Firecrawl API keys must be set.")
+    if "GOOGLE_API_KEY" not in os.environ or "TAVILY_API_KEY" not in os.environ:
+        raise ValueError("Google and Tavily API keys must be set.")
     print("✅ API keys loaded.")
 
     llm = ChatGoogleGenerativeAI(model="gemini-1.5-flash-latest", temperature=0)
@@ -64,27 +30,43 @@ def create_agent_executor():
     embedding_model = GoogleGenerativeAIEmbeddings(model="models/embedding-001")
     vectorstore = Chroma(persist_directory=persist_directory, embedding_function=embedding_model)
     retriever = vectorstore.as_retriever(search_kwargs={"k": 5})
-    rag_chain = ({"context": retriever, "input": RunnablePassthrough()} | PromptTemplate.from_template("Answer based on context:\n{context}\nQuestion: {input}") | llm | StrOutputParser())
+    rag_chain = ({"context": retriever, "input": RunnablePassthrough()} | ChatPromptTemplate.from_template("Answer based on context:\n{context}\nQuestion: {input}") | llm | StrOutputParser())
     
     document_tool = Tool(
         name="scientific_paper_search",
         func=rag_chain.invoke,
-        description="""Use this tool for specific questions about the 'Attention Is All You Need' research paper ONLY."""
+        description="""Use this tool for specific questions about the 'Attention Is All You Need' research paper."""
     )
     search_tool = TavilySearch(max_results=3)
     python_repl_tool = PythonREPLTool()
-    web_reader_tool = Tool(
-        name="web_page_reader",
-        func=scrape_website_with_firecrawl,
-        description="""Use this to read the full, clean content of a webpage given its URL. This is the best tool for getting detailed, up-to-date information."""
-    )
+    tools = [document_tool, search_tool, python_repl_tool]
+    print("✅ All three tools created.")
     
-    tools = [document_tool, search_tool, python_repl_tool, web_reader_tool]
-    print("✅ All four professional-grade tools created.")
+    # =======================================================================================
+    # --- THE FINAL UPGRADE: A Powerful Persona Prompt ---
+    # =======================================================================================
     
-    prompt = PromptTemplate.from_template(react_prompt_template_str)
-    agent = create_react_agent(llm, tools, prompt)
-    print("✅ Gemini-powered ReAct agent created with final polished prompt.")
+    persona_prompt_str = """
+    You are Samrat Agent, a world-class research assistant. Your goal is to provide accurate, well-structured, and helpful answers to the user.
+
+    Here are your instructions:
+    1.  **Always be helpful and proactive:** If you can find the answer, you must provide it. Never claim you don't know something if you have a tool that can find the answer.
+    2.  **Use your tools:** You have access to a set of powerful tools. You must decide which tool is best for the user's question and use it.
+    3.  **Structure your answers:** Break down complex answers into sections. Use **bold headings** and **numbered or bulleted lists** to make your answers easy to read.
+    4.  **Synthesize information:** Do not just copy-paste tool outputs. You must read the information from your tools and then synthesize a final, comprehensive answer in your own words.
+    5.  **Be conversational:** Maintain a friendly and professional tone.
+    """
+    
+    # We use the modern 'create_tool_calling_agent' which works best with Gemini
+    prompt = ChatPromptTemplate.from_messages([
+        ("system", persona_prompt_str),
+        ("user", "{input}"),
+        MessagesPlaceholder(variable_name="agent_scratchpad"),
+    ])
+    
+    agent = create_tool_calling_agent(llm, tools, prompt)
+    
+    print("✅ Persona-driven agent created.")
     
     agent_executor = AgentExecutor(
         agent=agent, 
